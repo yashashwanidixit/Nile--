@@ -1,21 +1,31 @@
 from fastapi import FastAPI
 from graph import compiled_graph
 from db import get_guest_profile
+from pydantic import BaseModel
 app = FastAPI()
 
+
+
+class AgentStepRequest(BaseModel):
+    tree_text: str
+    total_steps: int
+    action_history: list[str]
+    valid_node_ids: list[str]
+    
+
 @app.post("/agent/step")
-def agent_step(data: dict):
+def agent_step(data: AgentStepRequest):
    
     initial_state = {
-        "screen": data.get("tree_text",""),
+        "screen": data.tree_text,
         "guest_profile": get_guest_profile(),
-        "valid_node_ids": ["node_101", "node_102", "node_103", "node_104"],
+        "valid_node_ids": data.valid_node_ids,
         "result": None,
         "last_error": None,
         "retry_count": 0,
         "validation_outcome": None,
-        "total_steps":  data.get("total_steps", 0) ,
-        "action_history": data.get("action_history", []),   # comes IN from phone
+        "total_steps":  data.total_steps,
+        "action_history": data.action_history,   # comes IN from phone
     }
     
 
