@@ -5,18 +5,9 @@ app = FastAPI()
 
 @app.post("/agent/step")
 def agent_step(data: dict):
-    fake_screen = """
-    [node_102] TextField "Email Address" (empty)
-    [node_103] TextField "Phone Number" (empty)
-    [node_101] TextField "Full Name" (empty)
-    
-    [node_105] TextField "Select Room Size"(empty)
-
-    [node_104] Button "Pay"
-    
-    """
+   
     initial_state = {
-        "fake_screen": fake_screen,
+        "screen": data.get("tree_text",""),
         "guest_profile": get_guest_profile(),
         "valid_node_ids": ["node_101", "node_102", "node_103", "node_104"],
         "result": None,
