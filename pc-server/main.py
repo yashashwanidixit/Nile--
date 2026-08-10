@@ -2,6 +2,11 @@ from fastapi import FastAPI
 from graph import compiled_graph
 from db import get_guest_profile
 from pydantic import BaseModel
+import time
+from task import run_agent_step
+from celery.result import AsyncResult
+from celery_app import celery_app
+
 app = FastAPI()
 
 
@@ -15,9 +20,10 @@ class AgentStepRequest(BaseModel):
 
 @app.post("/agent/step")
 def agent_step(data: AgentStepRequest):
+    start_time = time.time()
    
     initial_state = {
-        "screen": data.tree_text,
+        "fake_screen": data.tree_text,
         "guest_profile": get_guest_profile(),
         "valid_node_ids": data.valid_node_ids,
         "result": None,
@@ -28,13 +34,17 @@ def agent_step(data: AgentStepRequest):
         "action_history": data.action_history,   # comes IN from phone
     }
     
+    task = run_agent_step.delay(initial_state)   # fires the task, returns immediately
+    return {"task_id": task.id}  
 
-    final_state = compiled_graph.invoke(initial_state)
-    final_state["total_steps"] += 1 
-    updated_history = final_state["action_history"] + [final_state["result"]]
+@app.get("/agent/step/result/{task_id}")
+def get_result(task_id: str):
+    result = celery_app.AsyncResult(task_id)
+    if result.ready():
+        return {"status": "done", "result": result.result}
+    return {"status": "pending"}
 
-    return {"final_result": final_state["result"], "retries_needed": final_state["total_steps"], "history" :updated_history}
-
+    
 
 
 

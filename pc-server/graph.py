@@ -2,7 +2,7 @@ from typing import TypedDict, Optional
 from langgraph.graph import StateGraph, END
 from llm import call_model
 from prompts import build_decide_prompt
-
+import time
 class AgentState(TypedDict):
     fake_screen: str
     guest_profile: dict
@@ -20,27 +20,33 @@ class AgentState(TypedDict):
     plan : Optional[str]
     
 def plan_node(state: AgentState) -> AgentState:
+    start = time.time()
     prompt = f"""
     Here is a complex screen: {state['fake_screen']}
     Briefly outline the overall approach for this screen (not a specific action yet).
     """
     state["plan"] = call_model(prompt)   # new field, add to AgentState: plan: Optional[str]
+    print(f"[TIMING] plan_node took {time.time() - start:.2f}s")
     print(f"[PLAN] output: {state['plan']}")   
     return state    
     
 def decide_node(state: AgentState) -> AgentState:
+    start =time.time()
     prompt = build_decide_prompt(state["fake_screen"], state["guest_profile"], state["last_error"],state.get("plan"))
     state["result"] = call_model(prompt)
+    print(f"[TIMING] decide_node took {time.time() - start:.2f}s")
     print(f"result :{state["result"]}")
     print(f"[DECIDE] output: {state['result']}")
     return state    
 
 
 def validate_node(state: AgentState) -> AgentState:
+    start =time.time()
     result = state["result"]
     history = state["action_history"]
     print(f"\n[VALIDATE] checking: {result}")
     print(f"[VALIDATE] history so far: {history}")
+    print(f"[TIMING] decide_node took {time.time() - start:.2f}s")
      # Stuck check: is this exact action the same as the last 2?
     if len(history) >= 2 and history[-1] == result and history[-2] == result:
         state["validation_outcome"] = "stuck"
