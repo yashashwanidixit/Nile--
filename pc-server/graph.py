@@ -1,6 +1,8 @@
 from typing import TypedDict, Optional
 from langgraph.graph import StateGraph, END
-from llm import call_model
+from langgraph.types import RetryPolicy
+from langgraph.checkpoint.memory import MemorySaver
+from llm import call_model, ModelTimeoutError
 from prompts import build_decide_prompt
 import time
 class AgentState(TypedDict):
@@ -115,15 +117,44 @@ def route(state: AgentState) -> str:
         return "retry"
 
 graph = StateGraph(AgentState)
-graph.add_node("plan", plan_node)
+
+# Node-level retry: a flaky decide/plan LLM call that RAISES (e.g. timeout,
+# connection blip) is retried here with backoff, without touching the
+# validate/retry validation loop below (which handles *bad content*).
+# NOTE: retry_on=Exception is deliberate — LangGraph's default_retry_on
+# ignores TimeoutError/OSError, so a hung-model timeout would NOT retry
+# unless we opt in explicitly.
+plan_retry_policy = RetryPolicy(
+    max_attempts=3,
+    initial_interval=1.0,
+    backoff_factor=2.0,
+    max_interval=10.0,
+    jitter=True,
+    retry_on=Exception,
+)
+decide_retry_policy = RetryPolicy(
+    max_attempts=3,
+    initial_interval=1.0,
+    backoff_factor=2.0,
+    max_interval=10.0,
+    jitter=True,
+    retry_on=Exception,
+)
+
+graph.add_node("plan", plan_node, retry_policy=plan_retry_policy)
 graph.set_entry_point("plan")
 graph.add_node("fail", fail_node)
-        
-graph.add_node("decide", decide_node)
+
+graph.add_node("decide", decide_node, retry_policy=decide_retry_policy)
 graph.add_node("validate", validate_node)
 
 graph.add_edge("plan", "decide")
 graph.add_edge("decide", "validate")
 graph.add_conditional_edges("validate", route, {"retry": "decide", "give_up": "fail","replan" :"plan", "end": END})
 graph.add_edge("fail", END)
-compiled_graph = graph.compile()
+# Checkpointer: saves graph state after EVERY node, keyed by thread_id.
+# Pass config={"configurable": {"thread_id": ...}} on invoke (see task.py).
+# A crashed run re-invoked with the same thread_id resumes from the last
+# completed node instead of restarting from "plan".
+checkpointer = MemorySaver()
+compiled_graph = graph.compile(checkpointer=checkpointer)
